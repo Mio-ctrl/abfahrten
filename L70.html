@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bus Linie 70 - Trachau</title>
+    <style>
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 15px;
+    background-color: white;
+    color: black;
+    font-size: 22px;
+}
+h1 {
+    font-size: 48px;
+    margin-bottom: 15px;
+    text-align: center;
+}
+h2 {
+    font-size: 36px;
+    margin-top: 30px;
+    margin-bottom: 20px;
+    text-align: center;
+}
+.update-time {
+    font-size: 20px;
+    text-align: center;
+    margin-bottom: 25px;
+    font-style: italic;
+}
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 30px;
+    font-family: Arial, sans-serif;
+}
+th, td {
+    padding: 18px 20px;
+    text-align: left;
+    border-bottom: 2px solid #ddd;
+    font-size: 22px;
+}
+th {
+    font-weight: bold;
+    background-color: #f5f5f5;
+}
+tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+.no-data {
+    text-align: center;
+    padding: 20px;
+    font-style: italic;
+    font-size: 22px;
+}
+.refresh-button {
+    display: block;
+    margin: 30px auto;
+    padding: 18px 35px;
+    background-color: #333;
+    color: white;
+    text-align: center;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    font-size: 24px;
+    border-radius: 8px;
+}
+.refresh-button:hover {
+    background-color: #555;
+}
+.line {
+    display: inline-block;
+    width: 50px;
+    height: 35px;
+    line-height: 35px;
+    text-align: center;
+    border-radius: 6px;
+    font-weight: bold;
+    color: white;
+    font-size: 22px;
+}
+.line-70 {
+    background-color: #005E6E;
+}
+.delay {
+    color: red;
+    font-weight: bold;
+    font-size: 20px;
+}
+.debug-log {
+    font-size: 14px;
+    font-family: monospace;
+    white-space: pre-wrap;
+    color: red;
+    margin-top: 15px;
+}
+    </style>
+</head>
+<body>
+    <h1>Bus Linie 70 - Trachau</h1>
+    <div class="update-time" id="update-time">Stand: Wird geladen...</div>
+    
+    <h2>Trachau (Linie 70)</h2>
+    <table>
+        <thead>
+          <tr>
+            <th>Linie</th>
+            <th>Richtung</th>
+            <th>in</th>
+            <th>Planmäßig</th>
+          </tr>
+        </thead>
+        <tbody id="departures-table"></tbody>
+    </table>
+    
+    <button class="refresh-button" onclick="loadDepartures()">Aktualisieren</button>
+    
+    <div id="debug" class="debug-log"></div>
+
+    <script>
+        // Haltestellen-ID für Trachau
+        const TRACHAU_ID = "33000622";
+        
+        // Base URL für die DVB API
+        const API_URL = "https://vvo-cors-proxy.onrender.com/vvo";
+
+        function loadDepartures() {
+            updateTimeStamp();
+            
+            var body = JSON.stringify({
+                stopid: TRACHAU_ID,
+                limit: 20,
+                format: 'json'
+            });
+
+            debugLog("Sende Anfrage für Linie 70 an Trachau");
+
+            var xhr = new XMLHttpRequest();
+            xhr.open("POST", API_URL, true);
+            xhr.setRequestHeader("Content-Type", "application/json");
+
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === 4) {
+                    if (xhr.status === 200) {
+                        debugLog("Antwort empfangen (Status 200)");
+                        try {
+                            var data = JSON.parse(xhr.responseText);
+                            updateDepartureTable(data);
+                        } catch (err) {
+                            debugLog("JSON-Fehler: " + err);
+                            document.getElementById('departures-table').innerHTML = 
+                                '<tr><td colspan="4">Fehler beim Parsen der Daten</td></tr>';
+                        }
+                    } else {
+                        debugLog("Fehlerstatus: " + xhr.status);
+                        document.getElementById('departures-table').innerHTML =
+                            '<tr><td colspan="4">Fehler beim Laden der Daten</td></tr>';
+                    }
+                }
+            };
+
+            xhr.onerror = function () {
+                debugLog("Verbindungsfehler!");
+                document.getElementById('departures-table').innerHTML =
+                    '<tr><td colspan="4">Verbindungsfehler</td></tr>';
+            };
+
+            try {
+                xhr.send(body);
+            } catch (e) {
+                debugLog("Sendefehler: " + e);
+            }
+        }
+
+        function updateDepartureTable(data) {
+            const tableBody = document.getElementById('departures-table');
+
+            if (!data || !data.Departures || data.Departures.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="4" class="no-data">Keine Abfahrten verfügbar</td></tr>`;
+                return;
+            }
+
+            const filteredDepartures = data.Departures.filter(dep =>
+                dep.LineName === "70"
+            );
+
+            if (filteredDepartures.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="4" class="no-data">Keine Abfahrten für Linie 70 verfügbar</td></tr>`;
+                return;
+            }
+
+            let tableContent = '';
+
+            filteredDepartures.forEach(dep => {
+                const line = dep.LineName || '';
+                const direction = dep.Direction || '';
+                const lineClass = `line line-${line.replace(' ', '')}`;
+
+                const realTime = dep.RealTime || dep.ScheduledTime;
+                const scheduledTime = dep.ScheduledTime;
+
+                const relative = getRelativeTimeWithDelay(realTime, scheduledTime);
+                const scheduledTimeFormatted = formatDateTime(scheduledTime);
+                const delay = getDelayMinutes(scheduledTime, realTime);
+
+                const delayHtml = delay > 0
+                    ? ` <span class="delay">+${delay} Min</span>`
+                    : '';
+
+                tableContent += `
+                <tr>
+                    <td><span class="${lineClass}">${line}</span></td>
+                    <td>${direction}</td>
+                    <td>${relative}</td>
+                    <td>${scheduledTimeFormatted}${delayHtml}</td>
+                </tr>`;
+            });
+
+            tableBody.innerHTML = tableContent;
+        }
+
+        function debugLog(msg) {
+            document.getElementById('debug').textContent += msg + "\n";
+        }
+
+        function formatDateTime(dvbString) {
+            const match = /\/Date\((\d+)(?:-\d+)?\)\//.exec(dvbString);
+            if (!match) return 'n/a';
+            const timestamp = parseInt(match[1], 10);
+            const date = new Date(timestamp);
+            const hours = date.getHours().toString().padStart(2, '0');
+            const minutes = date.getMinutes().toString().padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+
+        function getRelativeTimeWithDelay(realTimeString, scheduledTimeString) {
+            const match = /\/Date\((\d+)(?:-\d+)?\)\//.exec(realTimeString);
+            if (!match) return 'n/a';
+            const timestamp = parseInt(match[1], 10);
+            const now = Date.now();
+            const diffMin = (timestamp - now) / 60000;
+
+            const delay = getDelayMinutes(scheduledTimeString, realTimeString);
+            let relative;
+
+            if (diffMin < 0) {
+                relative = 'Abgefahren';
+            } else if (diffMin < 0.75) {
+                relative = 'Jetzt';
+            } else if (diffMin < 1.5) {
+                relative = '<1 Min';
+            } else {
+                relative = `${Math.round(diffMin)} Min`;
+            }
+
+            // Füge Verspätung zur relativen Zeit hinzu, wenn vorhanden
+            if (delay > 0 && diffMin >= 0) {
+                relative += ` (+${delay})`;
+            }
+
+            return relative;
+        }
+
+        function getDelayMinutes(scheduledString, realString) {
+            if (!scheduledString || !realString) return 0;
+
+            const matchScheduled = /\/Date\((\d+)(?:-\d+)?\)\//.exec(scheduledString);
+            const matchReal = /\/Date\((\d+)(?:-\d+)?\)\//.exec(realString);
+            if (!matchScheduled || !matchReal) return 0;
+
+            const scheduled = parseInt(matchScheduled[1], 10);
+            const real = parseInt(matchReal[1], 10);
+
+            const diffMin = Math.round((real - scheduled) / 60000);
+            return diffMin > 0 ? diffMin : 0;
+        }
+
+        function updateTimeStamp() {
+            const now = new Date();
+            const timeString = `Stand: ${now.toLocaleDateString()} ${now.toLocaleTimeString()}`;
+            document.getElementById('update-time').textContent = timeString;
+        }
+        
+        // Initiale Ladung der Abfahrtszeiten
+        loadDepartures();
+        
+        // Automatische Aktualisierung alle 30 Sekunden
+        setInterval(loadDepartures, 30000);
+    </script>
+</body>
+</html>
