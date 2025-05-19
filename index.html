@@ -378,24 +378,6 @@ function updateDepartureTable(data, lineFilter, tableId) {
             loadDepartures(TRACHAU_ID, TRACHAU_LINES, "station-trachau");
 
         }
-        // Füge diese Route zu deiner App hinzu (z.B. in server.js oder app.js)
-app.get('/api/departures', async (req, res) => {
-  try {
-    // Hier rufst du deine bestehende Logik auf, um Abfahrten zu holen
-    const departures = await getDepartures(); // deine bestehende Funktion
-    
-    // Formatiere die Daten für Home Assistant
-    const formattedData = {
-      departures: departures.slice(0, 5), // nur die nächsten 5
-      lastUpdate: new Date().toISOString(),
-      stationName: "Deine Haltestelle"
-    };
-    
-    res.json(formattedData);
-  } catch (error) {
-    res.status(500).json({ error: 'Fehler beim Abrufen der Abfahrten' });
-  }
-});
         
         // Initiale Ladung der Abfahrtszeiten
         loadAllDepartures();
